@@ -1,13 +1,111 @@
 import { Router } from 'express'
 import { FieldValue } from 'firebase-admin/firestore'
 import { verifyToken, type AuthRequest } from '../middlewares/authMiddleware'
-import { adminDb } from '../config/firebase'
+import { adminAuth, adminDb } from '../config/firebase'
 
 const router = Router()
 
-router.get('/profile', verifyToken, async (req: AuthRequest, res) => {
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
+
+function isOwner(req: AuthRequest, uid: string): boolean {
+  return req.userId === uid
+}
+
+/**
+ * GET /api/users/check-username/:username — Disponibilidad de username.
+ * Público: se usa durante el registro, cuando aún no hay sesión.
+ */
+router.get('/check-username/:username', async (req, res) => {
+  const username = req.params.username
+  if (!USERNAME_RE.test(username)) {
+    res.status(400).json({ error: 'Username inválido', available: false })
+    return
+  }
   try {
-    const snap = await adminDb.collection('users').doc(req.userId!).get()
+    const snap = await adminDb.collection('usernames').doc(username.toLowerCase()).get()
+    res.json({ available: !snap.exists })
+  } catch {
+    res.status(500).json({ error: 'Error al verificar el username' })
+  }
+})
+
+/**
+ * POST /api/users — Crea el perfil del usuario autenticado (US-01/US-02).
+ * El uid se toma del token, nunca del body. Reserva el username de forma atómica.
+ */
+router.post('/', verifyToken, async (req: AuthRequest, res) => {
+  const { firstName, lastName, username, email, avatarUrl, provider } = req.body
+  const uid = req.userId!
+
+  if (!firstName || !lastName || !username || !email || !provider) {
+    res.status(400).json({ error: 'Faltan campos requeridos' })
+    return
+  }
+  if (!USERNAME_RE.test(username)) {
+    res.status(400).json({ error: 'Username inválido (3-20 caracteres: letras, números o _)' })
+    return
+  }
+
+  const usernameKey = (username as string).toLowerCase()
+  try {
+    await adminDb.runTransaction(async (tx) => {
+      const userRef = adminDb.collection('users').doc(uid)
+      const userSnap = await tx.get(userRef)
+      if (userSnap.exists) {
+        const err = new Error('El perfil ya existe') as Error & { code?: string }
+        err.code = 'profile-exists'
+        throw err
+      }
+
+      const usernameRef = adminDb.collection('usernames').doc(usernameKey)
+      const usernameSnap = await tx.get(usernameRef)
+      if (usernameSnap.exists) {
+        const err = new Error('Username ya está en uso') as Error & { code?: string }
+        err.code = 'username-taken'
+        throw err
+      }
+
+      tx.set(userRef, {
+        uid,
+        firstName,
+        lastName,
+        username: usernameKey,
+        email,
+        avatarUrl:
+          avatarUrl ||
+          `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(firstName)}`,
+        provider,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      tx.set(usernameRef, { uid })
+    })
+
+    res.status(201).json({ message: 'Perfil creado exitosamente' })
+  } catch (err) {
+    const e = err as Error & { code?: string }
+    if (e.code === 'username-taken') {
+      res.status(409).json({ error: 'Username ya está en uso' })
+      return
+    }
+    if (e.code === 'profile-exists') {
+      res.status(409).json({ error: 'El perfil ya existe' })
+      return
+    }
+    res.status(500).json({ error: 'Error al crear el perfil' })
+  }
+})
+
+/**
+ * GET /api/users/:uid — Perfil del propietario (US-04).
+ */
+router.get('/:uid', verifyToken, async (req: AuthRequest, res) => {
+  if (!isOwner(req, req.params.uid)) {
+    res.status(403).json({ error: 'No autorizado' })
+    return
+  }
+  try {
+    const snap = await adminDb.collection('users').doc(req.params.uid).get()
     if (!snap.exists) {
       res.status(404).json({ error: 'Perfil no encontrado' })
       return
@@ -18,49 +116,98 @@ router.get('/profile', verifyToken, async (req: AuthRequest, res) => {
   }
 })
 
-router.post('/profile', verifyToken, async (req: AuthRequest, res) => {
+/**
+ * PATCH /api/users/:uid — Edita el perfil (US-04). Maneja cambio de username.
+ */
+router.patch('/:uid', verifyToken, async (req: AuthRequest, res) => {
+  const { uid } = req.params
+  if (!isOwner(req, uid)) {
+    res.status(403).json({ error: 'No autorizado' })
+    return
+  }
+
+  const { firstName, lastName, avatarUrl, username } = req.body
+  const updates: Record<string, unknown> = {}
+  if (firstName !== undefined) updates.firstName = firstName
+  if (lastName !== undefined) updates.lastName = lastName
+  if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl
+
+  if (username !== undefined && !USERNAME_RE.test(username)) {
+    res.status(400).json({ error: 'Username inválido (3-20 caracteres: letras, números o _)' })
+    return
+  }
+
   try {
-    const { firstName, lastName, username, email, avatarUrl, provider } = req.body
+    const userRef = adminDb.collection('users').doc(uid)
+    await adminDb.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef)
+      if (!userSnap.exists) {
+        const err = new Error('Perfil no encontrado') as Error & { code?: string }
+        err.code = 'not-found'
+        throw err
+      }
 
-    if (!firstName || !lastName || !username || !email || !provider) {
-      res.status(400).json({ error: 'Faltan campos requeridos' })
+      if (username !== undefined) {
+        const newKey = (username as string).toLowerCase()
+        const currentKey = userSnap.data()?.username as string | undefined
+        if (newKey !== currentKey) {
+          const newRef = adminDb.collection('usernames').doc(newKey)
+          const newSnap = await tx.get(newRef)
+          if (newSnap.exists) {
+            const err = new Error('Username ya está en uso') as Error & { code?: string }
+            err.code = 'username-taken'
+            throw err
+          }
+          tx.set(newRef, { uid })
+          if (currentKey) tx.delete(adminDb.collection('usernames').doc(currentKey))
+          updates.username = newKey
+        }
+      }
+
+      tx.update(userRef, { ...updates, updatedAt: FieldValue.serverTimestamp() })
+    })
+
+    const fresh = await userRef.get()
+    res.json(fresh.data())
+  } catch (err) {
+    const e = err as Error & { code?: string }
+    if (e.code === 'not-found') {
+      res.status(404).json({ error: 'Perfil no encontrado' })
       return
     }
-
-    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
-      res.status(400).json({ error: 'Username inválido' })
-      return
-    }
-
-    const usernameKey = (username as string).toLowerCase()
-    const usernameRef = adminDb.collection('usernames').doc(usernameKey)
-    const usernameSnap = await usernameRef.get()
-
-    if (usernameSnap.exists && usernameSnap.data()?.uid !== req.userId) {
+    if (e.code === 'username-taken') {
       res.status(409).json({ error: 'Username ya está en uso' })
       return
     }
+    res.status(500).json({ error: 'Error al actualizar el perfil' })
+  }
+})
+
+/**
+ * DELETE /api/users/:uid — Elimina cuenta (US-05): perfil + username + Auth.
+ */
+router.delete('/:uid', verifyToken, async (req: AuthRequest, res) => {
+  const { uid } = req.params
+  if (!isOwner(req, uid)) {
+    res.status(403).json({ error: 'No autorizado' })
+    return
+  }
+
+  try {
+    const userRef = adminDb.collection('users').doc(uid)
+    const snap = await userRef.get()
 
     const batch = adminDb.batch()
-    batch.set(adminDb.collection('users').doc(req.userId!), {
-      uid: req.userId,
-      firstName,
-      lastName,
-      username: usernameKey,
-      email,
-      avatarUrl:
-        avatarUrl ??
-        `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(firstName)}`,
-      provider,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    })
-    batch.set(usernameRef, { uid: req.userId })
+    batch.delete(userRef)
+    const username = snap.data()?.username as string | undefined
+    if (username) batch.delete(adminDb.collection('usernames').doc(username))
     await batch.commit()
 
-    res.status(201).json({ message: 'Perfil creado exitosamente' })
+    await adminAuth.deleteUser(uid)
+
+    res.json({ message: 'Cuenta eliminada exitosamente' })
   } catch {
-    res.status(500).json({ error: 'Error al crear el perfil' })
+    res.status(500).json({ error: 'Error al eliminar la cuenta' })
   }
 })
 
