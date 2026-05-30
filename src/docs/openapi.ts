@@ -10,12 +10,6 @@ const openApiSpec = {
       '## Errores\n' +
       'Las respuestas de error usan `{ error: string, code?: string }`. Los códigos `code` provienen de Firebase Auth cuando aplica.',
   },
-  servers: [
-    {
-      url: 'http://localhost:3001',
-      description: 'Desarrollo local (Docker)',
-    },
-  ],
   tags: [
     { name: 'Health', description: 'Estado del servicio' },
     { name: 'Auth', description: 'Registro, login y sesión' },
@@ -763,5 +757,16 @@ const openApiSpec = {
     },
   },
 } as const
+
+export type OpenApiSpec = typeof openApiSpec
+
+export function buildOpenApiSpec(serverUrl: string): OpenApiSpec & {
+  servers: { url: string; description: string }[]
+} {
+  return {
+    ...openApiSpec,
+    servers: [{ url: serverUrl, description: 'Servidor actual' }],
+  }
+}
 
 export default openApiSpec
