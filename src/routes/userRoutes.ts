@@ -12,8 +12,42 @@ function isOwner(req: AuthRequest, uid: string): boolean {
 }
 
 /**
- * GET /api/users/check-username/:username — Disponibilidad de username.
- * Público: se usa durante el registro, cuando aún no hay sesión.
+ * @openapi
+ * tags:
+ *   - name: Users
+ *     description: Gestión de perfiles de usuario
+ *
+ * /api/users/check-username/{username}:
+ *   get:
+ *     tags: [Users]
+ *     summary: Verifica la disponibilidad de un username
+ *     description: Público — se usa durante el registro, cuando aún no hay sesión.
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: username
+ *         required: true
+ *         schema: { type: string }
+ *         description: Username a verificar (3-20 caracteres alfanuméricos o _).
+ *     responses:
+ *       200:
+ *         description: Resultado de la verificación.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 available: { type: boolean, example: true }
+ *       400:
+ *         description: Username inválido.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       500:
+ *         description: Error del servidor.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
  */
 router.get('/check-username/:username', async (req, res) => {
   const username = req.params.username
@@ -30,8 +64,54 @@ router.get('/check-username/:username', async (req, res) => {
 })
 
 /**
- * POST /api/users — Crea el perfil del usuario autenticado (US-01/US-02).
- * El uid se toma del token, nunca del body. Reserva el username de forma atómica.
+ * @openapi
+ * /api/users:
+ *   post:
+ *     tags: [Users]
+ *     summary: Crea el perfil del usuario autenticado (US-01/US-02)
+ *     description: El uid se toma del token, nunca del body. Reserva el username de forma atómica.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [firstName, lastName, username, email, provider]
+ *             properties:
+ *               firstName: { type: string, example: Ada }
+ *               lastName: { type: string, example: Lovelace }
+ *               username: { type: string, example: ada_l }
+ *               email: { type: string, format: email, example: ada@example.com }
+ *               avatarUrl: { type: string, format: uri }
+ *               provider: { type: string, enum: [email, google] }
+ *     responses:
+ *       201:
+ *         description: Perfil creado exitosamente.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Message' }
+ *       400:
+ *         description: Faltan campos requeridos o username inválido.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       401:
+ *         description: No autenticado.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       409:
+ *         description: El perfil ya existe o el username está en uso.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       500:
+ *         description: Error del servidor.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
  */
 router.post('/', verifyToken, async (req: AuthRequest, res) => {
   const { firstName, lastName, username, email, avatarUrl, provider } = req.body
@@ -97,7 +177,39 @@ router.post('/', verifyToken, async (req: AuthRequest, res) => {
 })
 
 /**
- * GET /api/users/:uid — Perfil del propietario (US-04).
+ * @openapi
+ * /api/users/{uid}:
+ *   get:
+ *     tags: [Users]
+ *     summary: Obtiene el perfil del propietario (US-04)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: uid
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Perfil del usuario.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/UserProfile' }
+ *       403:
+ *         description: No autorizado (no es el propietario).
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       404:
+ *         description: Perfil no encontrado.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       500:
+ *         description: Error del servidor.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
  */
 router.get('/:uid', verifyToken, async (req: AuthRequest, res) => {
   if (!isOwner(req, req.params.uid)) {
@@ -117,7 +229,60 @@ router.get('/:uid', verifyToken, async (req: AuthRequest, res) => {
 })
 
 /**
- * PATCH /api/users/:uid — Edita el perfil (US-04). Maneja cambio de username.
+ * @openapi
+ * /api/users/{uid}:
+ *   patch:
+ *     tags: [Users]
+ *     summary: Edita el perfil (US-04)
+ *     description: Maneja el cambio de username de forma atómica.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: uid
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName: { type: string }
+ *               lastName: { type: string }
+ *               avatarUrl: { type: string, format: uri }
+ *               username: { type: string }
+ *     responses:
+ *       200:
+ *         description: Perfil actualizado.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/UserProfile' }
+ *       400:
+ *         description: Username inválido.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       403:
+ *         description: No autorizado (no es el propietario).
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       404:
+ *         description: Perfil no encontrado.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       409:
+ *         description: Username ya está en uso.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       500:
+ *         description: Error del servidor.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
  */
 router.patch('/:uid', verifyToken, async (req: AuthRequest, res) => {
   const { uid } = req.params
@@ -184,7 +349,35 @@ router.patch('/:uid', verifyToken, async (req: AuthRequest, res) => {
 })
 
 /**
- * DELETE /api/users/:uid — Elimina cuenta (US-05): perfil + username + Auth.
+ * @openapi
+ * /api/users/{uid}:
+ *   delete:
+ *     tags: [Users]
+ *     summary: Elimina la cuenta (US-05)
+ *     description: Borra el perfil, libera el username y elimina el usuario de Firebase Auth.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: uid
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Cuenta eliminada exitosamente.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Message' }
+ *       403:
+ *         description: No autorizado (no es el propietario).
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       500:
+ *         description: Error del servidor.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
  */
 router.delete('/:uid', verifyToken, async (req: AuthRequest, res) => {
   const { uid } = req.params
