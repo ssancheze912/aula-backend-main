@@ -10,6 +10,16 @@ const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
 // (ej. universidad.edu, correounivalle.edu.co).
 const EDU_EMAIL_RE = /@[^\s@]+\.edu(\.[a-z]{2,})?$/i
 
+// Campos de texto opcionales del perfil → longitud máxima permitida.
+const OPTIONAL_PROFILE_FIELDS: Record<string, number> = {
+  bio: 300,
+  link: 200,
+  university: 120,
+  career: 120,
+  year: 40,
+  country: 60,
+}
+
 function isOwner(req: AuthRequest, uid: string): boolean {
   return req.userId === uid
 }
@@ -307,6 +317,18 @@ router.patch('/:uid', verifyToken, async (req: AuthRequest, res) => {
   if (firstName !== undefined) updates.firstName = firstName
   if (lastName !== undefined) updates.lastName = lastName
   if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl
+
+  // Campos opcionales del perfil (Ajustes → Perfil). Se validan por longitud.
+  for (const [key, max] of Object.entries(OPTIONAL_PROFILE_FIELDS)) {
+    const value = req.body[key]
+    if (value !== undefined) {
+      if (typeof value !== 'string' || value.length > max) {
+        res.status(400).json({ error: `Campo "${key}" inválido (máximo ${max} caracteres)` })
+        return
+      }
+      updates[key] = value.trim()
+    }
+  }
 
   if (username !== undefined && !USERNAME_RE.test(username)) {
     res.status(400).json({ error: 'Username inválido (3-20 caracteres: letras, números o _)' })
