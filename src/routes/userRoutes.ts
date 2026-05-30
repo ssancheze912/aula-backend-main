@@ -6,6 +6,9 @@ import { adminAuth, adminDb } from '../config/firebase'
 const router = Router()
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
+// Solo correos institucionales: el dominio debe terminar en .edu o .edu.<tld>
+// (ej. universidad.edu, correounivalle.edu.co).
+const EDU_EMAIL_RE = /@[^\s@]+\.edu(\.[a-z]{2,})?$/i
 
 function isOwner(req: AuthRequest, uid: string): boolean {
   return req.userId === uid
@@ -83,7 +86,11 @@ router.get('/check-username/:username', async (req, res) => {
  *               firstName: { type: string, example: Ada }
  *               lastName: { type: string, example: Lovelace }
  *               username: { type: string, example: ada_l }
- *               email: { type: string, format: email, example: ada@example.com }
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: Correo institucional; el dominio debe terminar en .edu o .edu.&lt;tld&gt;.
+ *                 example: ada@universidad.edu
  *               avatarUrl: { type: string, format: uri }
  *               provider: { type: string, enum: [email, google] }
  *     responses:
@@ -93,7 +100,7 @@ router.get('/check-username/:username', async (req, res) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Message' }
  *       400:
- *         description: Faltan campos requeridos o username inválido.
+ *         description: Faltan campos requeridos, username inválido o correo no institucional.
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }
@@ -123,6 +130,10 @@ router.post('/', verifyToken, async (req: AuthRequest, res) => {
   }
   if (!USERNAME_RE.test(username)) {
     res.status(400).json({ error: 'Username inválido (3-20 caracteres: letras, números o _)' })
+    return
+  }
+  if (!EDU_EMAIL_RE.test(email)) {
+    res.status(400).json({ error: 'Solo se permiten correos institucionales (.edu)' })
     return
   }
 
