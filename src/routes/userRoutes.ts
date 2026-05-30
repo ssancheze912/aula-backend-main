@@ -1,66 +1,144 @@
 import { Router } from 'express'
-import { FieldValue } from 'firebase-admin/firestore'
 import { verifyToken, type AuthRequest } from '../middlewares/authMiddleware'
-import { adminDb } from '../config/firebase'
+import {
+  createUserProfile,
+  deleteUserProfile,
+  getUserProfile,
+  InvalidUsernameError,
+  isUsernameAvailable,
+  ProfileAlreadyExistsError,
+  ProfileNotFoundError,
+  updateUserProfile,
+  UsernameTakenError,
+} from '../services/userService'
+import { isValidProvider, isValidUsername } from '../utils/validation'
 
 const router = Router()
 
+router.get('/username/:username/available', async (req, res) => {
+  const { username } = req.params
+
+  if (!isValidUsername(username)) {
+    res.status(400).json({ error: 'Username inválido' })
+    return
+  }
+
+  try {
+    const available = await isUsernameAvailable(username)
+    res.json({ available })
+  } catch {
+    res.status(500).json({ error: 'Error al verificar el username' })
+  }
+})
+
 router.get('/profile', verifyToken, async (req: AuthRequest, res) => {
   try {
-    const snap = await adminDb.collection('users').doc(req.userId!).get()
-    if (!snap.exists) {
+    const profile = await getUserProfile(req.userId!)
+    if (!profile) {
       res.status(404).json({ error: 'Perfil no encontrado' })
       return
     }
-    res.json(snap.data())
+    res.json(profile)
   } catch {
     res.status(500).json({ error: 'Error al obtener el perfil' })
   }
 })
 
 router.post('/profile', verifyToken, async (req: AuthRequest, res) => {
+  const { firstName, lastName, username, email, avatarUrl, provider } = req.body
+
+  if (username == null || email == null || provider == null) {
+    res.status(400).json({ error: 'Faltan campos requeridos' })
+    return
+  }
+
+  if (!isValidUsername(username)) {
+    res.status(400).json({ error: 'Username inválido' })
+    return
+  }
+
+  if (!isValidProvider(provider)) {
+    res.status(400).json({ error: 'Provider inválido' })
+    return
+  }
+
   try {
-    const { firstName, lastName, username, email, avatarUrl, provider } = req.body
-
-    if (!firstName || !lastName || !username || !email || !provider) {
-      res.status(400).json({ error: 'Faltan campos requeridos' })
-      return
-    }
-
-    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
-      res.status(400).json({ error: 'Username inválido' })
-      return
-    }
-
-    const usernameKey = (username as string).toLowerCase()
-    const usernameRef = adminDb.collection('usernames').doc(usernameKey)
-    const usernameSnap = await usernameRef.get()
-
-    if (usernameSnap.exists && usernameSnap.data()?.uid !== req.userId) {
-      res.status(409).json({ error: 'Username ya está en uso' })
-      return
-    }
-
-    const batch = adminDb.batch()
-    batch.set(adminDb.collection('users').doc(req.userId!), {
-      uid: req.userId,
-      firstName,
-      lastName,
-      username: usernameKey,
+    const profile = await createUserProfile({
+      uid: req.userId!,
+      firstName: typeof firstName === 'string' ? firstName : '',
+      lastName: typeof lastName === 'string' ? lastName : '',
+      username,
       email,
-      avatarUrl:
-        avatarUrl ??
-        `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(firstName)}`,
+      avatarUrl,
       provider,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
     })
-    batch.set(usernameRef, { uid: req.userId })
-    await batch.commit()
-
-    res.status(201).json({ message: 'Perfil creado exitosamente' })
-  } catch {
+    res.status(201).json(profile)
+  } catch (err) {
+    if (err instanceof ProfileAlreadyExistsError) {
+      res.status(409).json({ error: err.message })
+      return
+    }
+    if (err instanceof UsernameTakenError) {
+      res.status(409).json({ error: err.message })
+      return
+    }
     res.status(500).json({ error: 'Error al crear el perfil' })
+  }
+})
+
+router.put('/profile', verifyToken, async (req: AuthRequest, res) => {
+  const { firstName, lastName, username, avatarUrl } = req.body
+
+  if (
+    firstName == null &&
+    lastName == null &&
+    username == null &&
+    avatarUrl == null
+  ) {
+    res.status(400).json({ error: 'Debe enviar al menos un campo para actualizar' })
+    return
+  }
+
+  if (username != null && typeof username !== 'string') {
+    res.status(400).json({ error: 'Username inválido' })
+    return
+  }
+
+  try {
+    const profile = await updateUserProfile(req.userId!, {
+      firstName: typeof firstName === 'string' ? firstName : undefined,
+      lastName: typeof lastName === 'string' ? lastName : undefined,
+      username: typeof username === 'string' ? username : undefined,
+      avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : undefined,
+    })
+    res.json(profile)
+  } catch (err) {
+    if (err instanceof ProfileNotFoundError) {
+      res.status(404).json({ error: err.message })
+      return
+    }
+    if (err instanceof InvalidUsernameError) {
+      res.status(400).json({ error: err.message })
+      return
+    }
+    if (err instanceof UsernameTakenError) {
+      res.status(409).json({ error: err.message })
+      return
+    }
+    res.status(500).json({ error: 'Error al actualizar el perfil' })
+  }
+})
+
+router.delete('/profile', verifyToken, async (req: AuthRequest, res) => {
+  try {
+    await deleteUserProfile(req.userId!)
+    res.status(204).send()
+  } catch (err) {
+    if (err instanceof ProfileNotFoundError) {
+      res.status(404).json({ error: err.message })
+      return
+    }
+    res.status(500).json({ error: 'Error al eliminar el perfil' })
   }
 })
 
