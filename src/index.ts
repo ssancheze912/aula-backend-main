@@ -4,6 +4,7 @@ import cors from 'cors'
 import helmet from 'helmet'
 import swaggerUi from 'swagger-ui-express'
 import userRoutes from './routes/userRoutes'
+import roomRoutes from './routes/roomRoutes'
 import { swaggerSpec } from './config/swagger'
 
 const app = express()
@@ -37,6 +38,7 @@ app.use((req, res, next) => {
 })
 
 app.use('/api/users', userRoutes)
+app.use('/api/rooms', roomRoutes)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'backend-main' })
