@@ -35,8 +35,23 @@ const options: swaggerJsdoc.Options = {
             email: { type: 'string', format: 'email', example: 'ada@example.com' },
             avatarUrl: { type: 'string', format: 'uri' },
             provider: { type: 'string', enum: ['email', 'google'] },
+            bio: { type: 'string', example: 'Estudiante de Ingeniería ✨' },
+            link: { type: 'string', example: 'sofiagarcia.github.io' },
+            university: { type: 'string', example: 'Universidad del Valle' },
+            career: { type: 'string', example: 'Ingeniería de Sistemas' },
+            year: { type: 'string', example: '3er año' },
+            country: { type: 'string', example: 'Colombia' },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        Room: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'kZ3p9QwillsAbc12' },
+            name: { type: 'string', example: 'Cálculo II — repaso parcial' },
+            hostId: { type: 'string', example: 'aBcD1234efGh' },
+            hostUsername: { type: 'string', example: 'ada_l' },
           },
         },
         Error: {

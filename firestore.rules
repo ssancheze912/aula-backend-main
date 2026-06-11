@@ -21,6 +21,20 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Salas: cualquier usuario autenticado puede leerlas (necesario para unirse
+    // por ID). Las escrituras solo ocurren vía backend (Admin SDK).
+    match /rooms/{roomId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+
+      // Mensajes de la sala: lectura para autenticados; la escritura la hace
+      // backend-realtime con el Admin SDK (no sujeto a estas reglas).
+      match /messages/{messageId} {
+        allow read: if request.auth != null;
+        allow write: if false;
+      }
+    }
+
     // Todo lo demás queda denegado por defecto.
     match /{document=**} {
       allow read, write: if false;
