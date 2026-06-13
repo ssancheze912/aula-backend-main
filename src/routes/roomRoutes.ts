@@ -181,4 +181,154 @@ router.get('/:id', verifyToken, async (req: AuthRequest, res) => {
   }
 })
 
+/**
+ * @openapi
+ * /api/rooms/{id}:
+ *   patch:
+ *     tags: [Rooms]
+ *     summary: Renombra una sala (US-07, solo anfitrión)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 3
+ *                 maxLength: 50
+ *     responses:
+ *       200:
+ *         description: Sala actualizada.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Room' }
+ *       400:
+ *         description: Nombre inválido.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       401:
+ *         description: No autenticado.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       403:
+ *         description: Solo el anfitrión puede editar la sala.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       404:
+ *         description: Sala no encontrada.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       500:
+ *         description: Error del servidor.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ */
+router.patch('/:id', verifyToken, async (req: AuthRequest, res) => {
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
+  if (name.length < NAME_MIN || name.length > NAME_MAX) {
+    res.status(400).json({ error: `El nombre debe tener entre ${NAME_MIN} y ${NAME_MAX} caracteres` })
+    return
+  }
+
+  try {
+    const roomRef = adminDb.collection('rooms').doc(req.params.id)
+    const snap = await roomRef.get()
+    if (!snap.exists) {
+      res.status(404).json({ error: 'Sala no encontrada' })
+      return
+    }
+    const data = snap.data()!
+    if (data.hostId !== req.userId) {
+      res.status(403).json({ error: 'Solo el anfitrión puede editar la sala' })
+      return
+    }
+
+    await roomRef.update({ name })
+    res.json({ id: snap.id, name, hostId: data.hostId, hostUsername: data.hostUsername })
+  } catch {
+    res.status(500).json({ error: 'Error al actualizar la sala' })
+  }
+})
+
+/**
+ * @openapi
+ * /api/rooms/{id}:
+ *   delete:
+ *     tags: [Rooms]
+ *     summary: Elimina una sala y su historial de chat (US-07, solo anfitrión)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       204:
+ *         description: Sala eliminada.
+ *       401:
+ *         description: No autenticado.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       403:
+ *         description: Solo el anfitrión puede eliminar la sala.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       404:
+ *         description: Sala no encontrada.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       500:
+ *         description: Error del servidor.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ */
+router.delete('/:id', verifyToken, async (req: AuthRequest, res) => {
+  try {
+    const roomRef = adminDb.collection('rooms').doc(req.params.id)
+    const snap = await roomRef.get()
+    if (!snap.exists) {
+      res.status(404).json({ error: 'Sala no encontrada' })
+      return
+    }
+    if (snap.data()!.hostId !== req.userId) {
+      res.status(403).json({ error: 'Solo el anfitrión puede eliminar la sala' })
+      return
+    }
+
+    // Borrar la subcolección de mensajes antes de eliminar la sala, para no dejar
+    // documentos huérfanos. Se trocea en lotes de 500 (límite de un batch de Firestore).
+    const messages = await roomRef.collection('messages').get()
+    for (let i = 0; i < messages.docs.length; i += 500) {
+      const batch = adminDb.batch()
+      messages.docs.slice(i, i + 500).forEach((doc) => batch.delete(doc.ref))
+      await batch.commit()
+    }
+
+    await roomRef.delete()
+    res.status(204).send()
+  } catch {
+    res.status(500).json({ error: 'Error al eliminar la sala' })
+  }
+})
+
 export default router
