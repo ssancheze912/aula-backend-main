@@ -24,7 +24,9 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 )
-app.use(express.json({ limit: '10kb' }))
+// 1mb deja holgura para el avatar del perfil (imagen subida desde el equipo,
+// recortada a 256px y embebida como data URL ~20-40 KB). El resto de payloads son pequeños.
+app.use(express.json({ limit: '1mb' }))
 
 // Log de cada petición: método, ruta, código de estado y duración.
 app.use((req, res, next) => {
