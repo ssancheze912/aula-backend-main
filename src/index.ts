@@ -2,10 +2,12 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
+import rateLimit from 'express-rate-limit'
 import swaggerUi from 'swagger-ui-express'
 import userRoutes from './routes/userRoutes'
 import roomRoutes from './routes/roomRoutes'
 import { swaggerSpec } from './config/swagger'
+import { errorHandler } from './middlewares/errorHandler'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -39,12 +41,31 @@ app.use((req, res, next) => {
   next()
 })
 
-app.use('/api/users', userRoutes)
-app.use('/api/rooms', roomRoutes)
+// Rate limiting: 120 peticiones/min por IP sobre la API. Frena fuerza bruta y
+// abuso sin estorbar el uso normal (la app hace pocas llamadas por interacción).
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas peticiones, inténtalo de nuevo en un momento.' },
+})
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'backend-main' })
 })
+
+app.use('/api/users', apiLimiter, userRoutes)
+app.use('/api/rooms', apiLimiter, roomRoutes)
+
+// Recurso no encontrado (404) para cualquier ruta no manejada arriba.
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Recurso no encontrado' })
+})
+
+// Manejador de errores transversal: captura JSON malformado (SyntaxError del body
+// parser) y cualquier excepción no atrapada en las rutas, sin filtrar el stack.
+app.use(errorHandler)
 
 app.listen(PORT, () => {
   console.log(`backend-main corriendo en puerto ${PORT}`)
