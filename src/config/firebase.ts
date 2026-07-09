@@ -1,3 +1,9 @@
+/**
+ * Inicialización del Firebase Admin SDK. Lee las credenciales de la cuenta de
+ * servicio desde variables de entorno y expone los clientes de Auth y Firestore
+ * usados por toda la API. Las credenciales son obligatorias: si faltan, el
+ * arranque falla de forma explícita en lugar de degradarse silenciosamente.
+ */
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
@@ -28,5 +34,7 @@ if (!getApps().length) {
   }
 }
 
+/** Cliente de Firebase Authentication (verificación de ID tokens, gestión de usuarios). */
 export const adminAuth = getAuth()
+/** Cliente de Firestore para lectura/escritura de perfiles y salas. */
 export const adminDb = getFirestore()

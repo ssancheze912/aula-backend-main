@@ -7,6 +7,18 @@ interface HttpError extends Error {
   type?: string
 }
 
+/**
+ * Manejo de errores transversal (último middleware de la cadena). Traduce los
+ * errores conocidos a respuestas JSON con el status adecuado:
+ * CORS → 403, JSON malformado → 400, payload demasiado grande → 413, y cualquier
+ * error con status explícito se respeta; el resto es 500. En producción los 5xx
+ * no filtran el mensaje interno ni el stack.
+ *
+ * @param err   Error capturado (puede traer `status`/`statusCode`/`type`).
+ * @param _req  Petición Express (no usada).
+ * @param res   Respuesta Express donde se escribe el error en JSON.
+ * @param _next Firma requerida por Express para reconocerlo como error handler.
+ */
 export function errorHandler(
   err: HttpError,
   _req: Request,

@@ -73,4 +73,9 @@ const options: swaggerJsdoc.Options = {
   apis: ['./src/routes/*.ts', './dist/routes/*.js'],
 }
 
+/**
+ * Especificación OpenAPI 3.0 generada a partir de las anotaciones `@openapi`
+ * de los archivos de rutas. La sirve `swagger-ui-express` en `/api/docs` y se
+ * expone en crudo en `/api/docs.json`.
+ */
 export const swaggerSpec = swaggerJsdoc(options)

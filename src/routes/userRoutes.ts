@@ -20,6 +20,7 @@ const OPTIONAL_PROFILE_FIELDS: Record<string, number> = {
   country: 60,
 }
 
+/** True si el usuario autenticado (del token) es el dueño del recurso `uid`. */
 function isOwner(req: AuthRequest, uid: string): boolean {
   return req.userId === uid
 }
