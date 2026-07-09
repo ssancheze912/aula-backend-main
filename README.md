@@ -1,6 +1,6 @@
 # backend-main — API REST (StudyRoom)
 
-Backend principal del [Salón de Estudio Colaborativo](../README.md). Expone una API REST
+Backend principal del [Salón de Estudio Colaborativo](https://github.com/ssancheze912/aula-frontend). Expone una API REST
 de **autenticación, perfiles de usuario y salas**, respaldada por Firebase Auth y Firestore.
 El frontend nunca escribe en Firestore directamente: toda escritura pasa por esta API
 usando el Admin SDK (`Frontend ↔ API ↔ Base de datos`).
@@ -77,6 +77,33 @@ npm install
 npm run dev      # hot-reload en http://localhost:3001
 npm run build    # compila TypeScript a dist/
 npm start        # ejecuta la versión compilada
+```
+
+## Despliegue (Render)
+
+Se despliega como *Web Service* en Render desde este repositorio:
+
+| Ajuste | Valor |
+|--------|-------|
+| Build Command | `npm install && npm run build` |
+| Start Command | `npm start` |
+| Health Check Path | `/health` |
+
+Variables de entorno en el dashboard de Render (**Environment**) — las mismas de la tabla
+de arriba. `PORT` la inyecta Render automáticamente; define `NODE_ENV=production`,
+`FRONTEND_URL` con la URL de Vercel (`https://aula-weld.vercel.app`), `API_URL` con la URL
+pública de este servicio (`https://aula-backend-main-6uoz.onrender.com`; Swagger la usa como
+*server*) y las tres `FIREBASE_*` (pega la clave con los `\n` escapados, tal cual vienen del
+JSON de la cuenta de servicio).
+
+Tras el deploy, verifica:
+`curl https://aula-backend-main-6uoz.onrender.com/health` →
+`{"status":"ok","service":"backend-main"}`. Las docs quedan en `/api/docs`.
+
+**Reglas de Firestore:** publica `firestore.rules` con la Firebase CLI:
+
+```bash
+firebase deploy --only firestore:rules
 ```
 
 ## Estructura
